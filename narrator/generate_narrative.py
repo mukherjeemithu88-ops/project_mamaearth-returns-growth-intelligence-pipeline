@@ -5,10 +5,37 @@ from google import genai
 from google.genai import types
 
 
-## PART 3 — TASK 2: SCR NARRATIVE GENERATION
+## HELPERS — Display formatting built only from findings
+
+MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
 
 
-## TASK 2.1 — Deterministic Offline SCR Narrative Fallback
+def format_month(year_month: str) -> str:
+    """
+    Convert a YYYY-MM value such as "2026-03" into "March 2026".
+
+    If the value is not in YYYY-MM format, it is returned unchanged.
+    """
+
+    try:
+        year, month = year_month.split("-")
+        return f"{MONTH_NAMES[int(month) - 1]} {year}"
+    except (ValueError, IndexError, AttributeError):
+        return year_month
+
+
+def format_inr(value: float) -> str:
+    """
+    Format a number as rupee display text, for example 20318.9 -> "20,318.90".
+    """
+
+    return f"{value:,.2f}"
+
+
+## PART 3 — TASK 4: Deterministic Offline SCR Narrative Fallback
 
 def generate_scr_narrative_offline(findings: dict) -> dict:
     """
@@ -30,30 +57,14 @@ def generate_scr_narrative_offline(findings: dict) -> dict:
     risk_tier = findings["highest_risk_segment"]["city_tier"]
     risk_rate = findings["highest_risk_segment"]["return_rate_pct"]
 
-    peak_month = findings["true_peak_month"]["month"]
     peak_revenue = findings["true_peak_month"]["revenue_inr"]
+    month_name = format_month(findings["true_peak_month"]["month"])
 
-    inflated_month = findings["outlier_inflated_month"]["month"]
+    inflated_month_name = format_month(
+        findings["outlier_inflated_month"]["month"]
+    )
     apparent_revenue = findings["outlier_inflated_month"]["apparent_revenue_inr"]
     corrected_revenue = findings["outlier_inflated_month"]["corrected_revenue_inr"]
-
-    month_name = {
-        "2026-01": "January 2026",
-        "2026-02": "February 2026",
-        "2026-03": "March 2026",
-        "2026-04": "April 2026",
-        "2026-05": "May 2026",
-        "2026-06": "June 2026"
-    }.get(peak_month, peak_month)
-
-    inflated_month_name = {
-        "2026-01": "January 2026",
-        "2026-02": "February 2026",
-        "2026-03": "March 2026",
-        "2026-04": "April 2026",
-        "2026-05": "May 2026",
-        "2026-06": "June 2026"
-    }.get(inflated_month, inflated_month)
 
     narrative = f"""Situation
 
@@ -75,32 +86,48 @@ Regional operations and finance teams should use the cleaned revenue of INR {cle
     }
 
 
-## TASK 2.2 — Gemini Online SCR Narrative Generation
+## PART 3 — TASK 2 and TASK 3: Gemini Online Call
 
-def generate_scr_narrative(findings: dict) -> dict:
+def call_gemini_scr(findings: dict, api_key: str) -> dict:
     """
-    Generate a Situation-Complication-Resolution narrative using Gemini.
+    Make the Gemini call and always return a structured dict.
 
-    The narrative is generated only from the verified findings
-    supplied by the previous analysis layer.
+    Success: {"status": "success", "narrative": ..., "tokens": ...}
+    Failure: {"status": "error", "narrative": None, "message": str(err)}
+
+    The caller never receives a raw exception.
     """
-
-    api_key = os.getenv("GEMINI_API_KEY")
-
-
-    ## TASK 4 — API Key Check and Offline Fallback
-
-    if not api_key:
-        return generate_scr_narrative_offline(findings)
-
-
-    ## TASK 3 — Gemini Client, Timeout and Generation Controls
 
     try:
-        client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(timeout=30000)
+
+        ## TASK 2 — Display values built from the findings argument.
+        ## Nothing below is typed by hand: a different findings.json
+        ## produces a different prompt without touching this function.
+
+        peak_month = findings["true_peak_month"]["month"]
+        peak_month_name = format_month(peak_month)
+        peak_revenue_text = format_inr(
+            findings["true_peak_month"]["revenue_inr"]
         )
+
+        inflated_month = findings["outlier_inflated_month"]["month"]
+        inflated_month_name = format_month(inflated_month)
+
+        cleaned_revenue_text = format_inr(
+            findings["cleaned_total_revenue_inr"]
+        )
+        duplicate_delta_text = format_inr(
+            findings["duplicate_reconciliation_delta_inr"]
+        )
+
+        cod_rate = findings["return_rate_by_payment"]["COD"]
+
+        risk_payment = findings["highest_risk_segment"]["payment_method"]
+        risk_tier = findings["highest_risk_segment"]["city_tier"]
+        risk_rate = findings["highest_risk_segment"]["return_rate_pct"]
+
+
+        ## TASK 2 — System instruction (kept separate from the user prompt)
 
         system_instruction = """
 You are a senior data analyst writing for Mamaearth's regional
@@ -116,9 +143,10 @@ Resolution
 Use only the verified figures and facts supplied in the
 findings dictionary.
 
-Every numerical value in the narrative must come from findings.
-Do not invent statistics, percentages, revenue values, counts,
-dates, or other numerical facts.
+Every numerical value in the narrative must come from findings
+and appear with the same value. Do not invent statistics,
+percentages, revenue values, counts, dates, or other numerical
+facts.
 
 Do not introduce unsupported claims such as audit findings,
 financial misstatements, margins, costs, working capital
@@ -129,11 +157,9 @@ Preserve the numerical values from findings exactly, allowing
 only normal display formatting such as comma separators and
 two decimal places.
 
-Do not add numerical information from outside findings.
-
 When a month is supplied in YYYY-MM format, express it using
-the calendar month name and year, for example 2026-03 as
-March 2026. Preserve the associated revenue value exactly.
+the calendar month name and year, for example 2025-11 as
+November 2025. Preserve the associated revenue value exactly.
 
 Explain the business implications for Mamaearth's regional
 operations and finance teams.
@@ -141,6 +167,9 @@ operations and finance teams.
 Return only the three SCR sections. Do not add a separate
 summary, appendix, verified-figures section, or other section.
 """
+
+
+        ## TASK 2 — User prompt interpolated from findings
 
         user_prompt = f"""
 Create the executive business briefing from these verified
@@ -154,16 +183,26 @@ Requirements:
 - Use only the supplied findings.
 - Do not invent any numerical facts.
 - Preserve the supplied numerical values.
-- The narrative MUST contain the literal word "March".
-- For the true peak month, write "March 2026" instead of "2026-03".
-- The true peak revenue must be written as INR 20,318.90.
+- State the cleaned total revenue as INR {cleaned_revenue_text}.
+- State the COD return rate as {cod_rate:.1f}%.
+- State the highest-risk segment as {risk_payment} in Tier {risk_tier} cities at {risk_rate:.1f}%.
+- State the duplicate reconciliation delta as INR {duplicate_delta_text}.
+- Name the true peak month as "{peak_month_name}", not "{peak_month}".
+- State the true peak month revenue as INR {peak_revenue_text}.
+- Name the outlier-inflated month as "{inflated_month_name}", not "{inflated_month}".
 - Do not describe the findings as an audit or financial misstatement.
 - Explain the operational and finance implications using only
   implications supported by the supplied findings.
 """
 
 
-        ## TASK 3.1 — Gemini Content Generation
+        ## TASK 3 — Gemini client with a 30-second timeout
+        ## (the SDK takes the timeout in milliseconds)
+
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=30000)
+        )
 
         response = client.models.generate_content(
             model="gemini-3.8-flash",
@@ -187,11 +226,15 @@ Requirements:
             )
         )
 
-
-        ## TASK 3.2 — Process Gemini Response
-
         narrative = response.text
-        narrative = narrative.replace("2026-03", "March 2026")
+
+        if not narrative:
+            raise ValueError("Gemini returned an empty response.")
+
+        # Safety net: if the model still wrote a raw YYYY-MM value,
+        # replace it with the month name built from findings.
+        narrative = narrative.replace(peak_month, peak_month_name)
+        narrative = narrative.replace(inflated_month, inflated_month_name)
 
         tokens = None
 
@@ -209,19 +252,42 @@ Requirements:
             "mode": "online"
         }
 
-
-    ## TASK 3.3 — Error Handling and Offline Recovery
-
     except Exception as err:
 
+        return {
+            "status": "error",
+            "narrative": None,
+            "message": str(err)
+        }
+
+
+## PART 3 — TASK 2 and TASK 4: Main narrative function
+
+def generate_scr_narrative(findings: dict) -> dict:
+    """
+    Generate a Situation-Complication-Resolution narrative.
+
+    Online Gemini path when GEMINI_API_KEY is set.
+    Offline deterministic path when there is no key,
+    or when the online call returns status "error".
+    """
+
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    # TASK 4 — No key configured: go straight to the offline path.
+    if not api_key:
+        return generate_scr_narrative_offline(findings)
+
+    result = call_gemini_scr(findings, api_key)
+
+    # TASK 4 — Online call failed: fall back to the offline path
+    # and keep the error message so the failure is not hidden.
+    if result["status"] == "error":
         offline_result = generate_scr_narrative_offline(findings)
-
-        offline_result["message"] = (
-            "Online Gemini generation failed; deterministic "
-            "offline fallback was used. Error: " + str(err)
-        )
-
+        offline_result["online_error"] = result["message"]
         return offline_result
+
+    return result
 
 
 ## TASK 5 — Numeric Accuracy Checker
