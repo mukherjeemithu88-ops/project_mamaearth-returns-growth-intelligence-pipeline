@@ -237,7 +237,7 @@ $env:GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 python narrator/generate_narrative.py
 ```
 
-The project uses the free Gemini usage path; a paid-only API dependency is not required.
+**Free-path statement:** The Gemini API key used in this project is a free key issued by Google AI Studio (https://aistudio.google.com) under its free usage tier. No paid-only key is used. In addition, the offline fallback path (section 8.3) lets the whole pipeline run and be graded with zero API spend and no network access.
 
 #### Running the online mode in Google Colab
 
@@ -308,6 +308,8 @@ python narrator/generate_narrative.py
 # narrator/sample_output.txt
 ```
 
+Running `python narrator/generate_narrative.py` also checks the saved `narrator/sample_output.txt` automatically. It prints a PASS/FAIL line for each of the five required figures, so the grader can verify the saved online sample without making a live API call.
+
 ## 11. Complete End-to-End Execution Order
 
 1. Create a fresh SQLite database
@@ -319,7 +321,7 @@ python narrator/generate_narrative.py
 7. Run `python analysis/visualize.py` and confirm both PNGs are generated
 8. Run `python narrator/generate_narrative.py` with `GEMINI_API_KEY` for online mode, or without it for offline mode
 9. For the online path, save the actual narrative in `narrator/sample_output.txt`
-10. Run the numeric checker and confirm all five figures pass
+10. Run `python narrator/generate_narrative.py` again and confirm all five figures show PASS for both the generated narrative and the saved `sample_output.txt`
 
 ## 12. Reproducibility and Data Integrity
 
