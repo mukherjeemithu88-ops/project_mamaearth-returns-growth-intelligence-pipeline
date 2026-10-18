@@ -1,8 +1,6 @@
 import json
 import os
 
-from google import genai
-from google.genai import types
 
 
 ## HELPERS — Display formatting built only from findings
@@ -99,6 +97,10 @@ def call_gemini_scr(findings: dict, api_key: str) -> dict:
     """
 
     try:
+        # Gemini library is imported here (not at the top of the file)
+        # so the offline path works even when google-genai is not installed.
+        from google import genai
+        from google.genai import types
 
         ## TASK 2 — Display values built from the findings argument.
         ## Nothing below is typed by hand: a different findings.json
@@ -355,3 +357,16 @@ if __name__ == "__main__":
 
     if result["status"] == "success":
         check_numeric_accuracy(result["narrative"])
+
+    ## MAIN TASK 3 — Check the saved online Gemini sample (Part 3, Task 5)
+
+    sample_path = "narrator/sample_output.txt"
+
+    if os.path.exists(sample_path):
+        with open(sample_path, "r", encoding="utf-8") as file:
+            sample_text = file.read()
+
+        print("\nChecking saved online sample:", sample_path)
+        check_numeric_accuracy(sample_text)
+    else:
+        print("\nSaved online sample not found:", sample_path)
